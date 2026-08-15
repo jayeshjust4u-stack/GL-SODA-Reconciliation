@@ -27,51 +27,103 @@ jobs:
 
       - name: Extract Android project
         run: |
+          rm -rf android-project
           mkdir android-project
-          unzip -q GL_SODA_Reconciliation_Android_Project.zip -d android-project
 
-          echo "Extracted files:"
+          unzip -q GL_SODA_Reconciliation_Android_Project.zip \
+            -d android-project
+
+          echo "Extracted project:"
           find android-project -maxdepth 4 -type f | sort
 
-      - name: Find Android project root
+      - name: Find Android project
         run: |
-          echo "Searching for settings.gradle..."
-          find android-project -name "settings.gradle" -o -name "settings.gradle.kts"
+          SETTINGS=$(find android-project \
+            -name "settings.gradle" \
+            -o -name "settings.gradle.kts" | head -1)
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle not found"
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS")
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "Android project:"
+          echo "$PROJECT_DIR"
 
       - name: Enable AndroidX
         run: |
-          PROJECT_DIR=$(dirname "$(find android-project -name "settings.gradle" -o -name "settings.gradle.kts" | head -1)")
-          
-          echo "Android project directory: $PROJECT_DIR"
+          echo "Configuring AndroidX..."
 
-          cat >> "$PROJECT_DIR/gradle.properties" <<'EOF'
-          android.useAndroidX=true
-          android.enableJetifier=true
-          EOF
+          touch "$PROJECT_DIR/gradle.properties"
 
-          echo "gradle.properties:"
+          grep -qxF 'android.useAndroidX=true' \
+            "$PROJECT_DIR/gradle.properties" || \
+            echo 'android.useAndroidX=true' \
+            >> "$PROJECT_DIR/gradle.properties"
+
+          grep -qxF 'android.enableJetifier=true' \
+            "$PROJECT_DIR/gradle.properties" || \
+            echo 'android.enableJetifier=true' \
+            >> "$PROJECT_DIR/gradle.properties"
+
           cat "$PROJECT_DIR/gradle.properties"
+
+      - name: Fix PDFBox dependency
+        run: |
+          echo "Searching for PDFBox dependency..."
+
+          grep -RIn \
+            "org.apache.pdfbox:pdfbox-android" \
+            "$PROJECT_DIR" \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            || true
+
+          find "$PROJECT_DIR" \
+            -type f \
+            \( -name "*.gradle" -o -name "*.gradle.kts" \) \
+            -print0 |
+          xargs -0 sed -i \
+            's/org\.apache\.pdfbox:pdfbox-android/com.tom-roush:pdfbox-android/g'
+
+          echo "PDFBox dependency after patch:"
+
+          grep -RIn \
+            "pdfbox-android" \
+            "$PROJECT_DIR" \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            || true
 
       - name: Build APK
         run: |
-          PROJECT_DIR=$(dirname "$(find android-project -name "settings.gradle" -o -name "settings.gradle.kts" | head -1)")
-          
-          echo "Building from: $PROJECT_DIR"
+          echo "Building from:"
+          echo "$PROJECT_DIR"
 
           cd "$PROJECT_DIR"
 
-          gradle assembleDebug --no-daemon \
+          gradle assembleDebug \
+            --no-daemon \
             -Pandroid.useAndroidX=true \
             -Pandroid.enableJetifier=true
 
       - name: Find APK
         run: |
-          echo "Generated APK:"
-          find android-project -type f -name "*.apk" -print
+          echo "Searching for generated APK..."
+
+          find "$PROJECT_DIR" \
+            -type f \
+            -name "*.apk" \
+            -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: GL-SODA-Reconciliation-APK
-          path: android-project/**/build/outputs/apk/debug/*.apk
+          path: |
+            **/build/outputs/apk/debug/*.apk
           if-no-files-found: error
