@@ -25,36 +25,53 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Show project files
+      - name: Extract Android project
         run: |
-          echo "Current directory:"
-          pwd
-          echo "Project files:"
-          find . -maxdepth 3 -type f | sort
+          mkdir android-project
+          unzip -q GL_SODA_Reconciliation_Android_Project.zip -d android-project
 
-      - name: Check AndroidX configuration
+          echo "Extracted files:"
+          find android-project -maxdepth 4 -type f | sort
+
+      - name: Find Android project root
         run: |
+          echo "Searching for settings.gradle..."
+          find android-project -name "settings.gradle" -o -name "settings.gradle.kts"
+
+      - name: Enable AndroidX
+        run: |
+          PROJECT_DIR=$(dirname "$(find android-project -name "settings.gradle" -o -name "settings.gradle.kts" | head -1)")
+          
+          echo "Android project directory: $PROJECT_DIR"
+
+          cat >> "$PROJECT_DIR/gradle.properties" <<'EOF'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
+
           echo "gradle.properties:"
-          if [ -f gradle.properties ]; then
-            cat gradle.properties
-          else
-            echo "No root gradle.properties found"
-          fi
+          cat "$PROJECT_DIR/gradle.properties"
 
-      - name: Build Debug APK
+      - name: Build APK
         run: |
+          PROJECT_DIR=$(dirname "$(find android-project -name "settings.gradle" -o -name "settings.gradle.kts" | head -1)")
+          
+          echo "Building from: $PROJECT_DIR"
+
+          cd "$PROJECT_DIR"
+
           gradle assembleDebug --no-daemon \
             -Pandroid.useAndroidX=true \
             -Pandroid.enableJetifier=true
 
       - name: Find APK
         run: |
-          echo "Generated APK files:"
-          find . -type f -name "*.apk" -print
+          echo "Generated APK:"
+          find android-project -type f -name "*.apk" -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GL-SODA-Reconciliation-debug
-          path: '**/build/outputs/apk/debug/*.apk'
+          name: GL-SODA-Reconciliation-APK
+          path: android-project/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
