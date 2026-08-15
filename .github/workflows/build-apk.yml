@@ -10,6 +10,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      GRADLE_OPTS: "-Xmx5g -Dorg.gradle.jvmargs=-Xmx5g -Dorg.gradle.workers.max=2"
+      JAVA_TOOL_OPTIONS: "-Xmx5g"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -33,9 +37,6 @@ jobs:
           unzip -q GL_SODA_Reconciliation_Android_Project.zip \
             -d android-project
 
-          echo "Extracted project:"
-          find android-project -maxdepth 4 -type f | sort
-
       - name: Find Android project
         run: |
           SETTINGS=$(find android-project \
@@ -51,13 +52,10 @@ jobs:
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-          echo "Android project:"
-          echo "$PROJECT_DIR"
+          echo "Android project: $PROJECT_DIR"
 
       - name: Enable AndroidX
         run: |
-          echo "Configuring AndroidX..."
-
           touch "$PROJECT_DIR/gradle.properties"
 
           grep -qxF 'android.useAndroidX=true' \
@@ -70,19 +68,11 @@ jobs:
             echo 'android.enableJetifier=true' \
             >> "$PROJECT_DIR/gradle.properties"
 
+          echo "Gradle properties:"
           cat "$PROJECT_DIR/gradle.properties"
 
       - name: Fix PDFBox dependency
         run: |
-          echo "Searching for PDFBox dependency..."
-
-          grep -RIn \
-            "org.apache.pdfbox:pdfbox-android" \
-            "$PROJECT_DIR" \
-            --include="*.gradle" \
-            --include="*.gradle.kts" \
-            || true
-
           find "$PROJECT_DIR" \
             -type f \
             \( -name "*.gradle" -o -name "*.gradle.kts" \) \
@@ -90,8 +80,7 @@ jobs:
           xargs -0 sed -i \
             's/org\.apache\.pdfbox:pdfbox-android/com.tom-roush:pdfbox-android/g'
 
-          echo "PDFBox dependency after patch:"
-
+          echo "PDFBox dependency:"
           grep -RIn \
             "pdfbox-android" \
             "$PROJECT_DIR" \
@@ -101,20 +90,17 @@ jobs:
 
       - name: Build APK
         run: |
-          echo "Building from:"
-          echo "$PROJECT_DIR"
-
           cd "$PROJECT_DIR"
 
           gradle assembleDebug \
             --no-daemon \
+            --no-parallel \
+            --max-workers=2 \
             -Pandroid.useAndroidX=true \
             -Pandroid.enableJetifier=true
 
       - name: Find APK
         run: |
-          echo "Searching for generated APK..."
-
           find "$PROJECT_DIR" \
             -type f \
             -name "*.apk" \
